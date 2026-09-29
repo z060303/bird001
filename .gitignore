@@ -1,0 +1,22 @@
+# CMake / IDE output
+/build/
+/cmake-build-*/
+/.idea/
+/.vscode/
+/.cache/
+/.venv/
+__pycache__/
+*.py[cod]
+*.elf
+*.hex
+*.bin
+*.map
+*.su
+*.o
+*.obj
+
+# Local experiments and backup copies
+/backup/
+/tmp/
+*.log
+
