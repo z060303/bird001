@@ -63,6 +63,27 @@ cmake --build --preset Debug
 3. [构建与验证](docs/构建与验证.md)：复现构建、串口观察、测试边界。
 4. [Core/APP/README.md](Core/APP/README.md)：FreeRTOS 实现细节。
 
+## 固件实现效果
+
+
+开环测试无刷电机驱动视频
+
+https://github.com/user-attachments/assets/9d0edf99-df40-4efc-a352-9cb9c4d47c23
+
+IMU驱动视频
+
+https://github.com/user-attachments/assets/2b8ffde2-f601-4793-bfb4-b5d4c7e5ae6f
+
+气压计驱动视频
+
+https://github.com/user-attachments/assets/0544123f-fe12-4aef-b283-a6243deb4f4b
+
+舵机自适应平衡驱动视频
+
+https://github.com/user-attachments/assets/28b2c677-17da-4bfe-9c41-6cadca201b14
+
+本仓库保留的是设计源文件与固件，由于实验室项目规定未提供装配实测报告或飞行测试结果。
+
 ## 许可证
 
 原创代码、文档和板图按 [MIT License](LICENSE) 发布。仓库内 STM32 HAL/CMSIS 与 FreeRTOS 仍遵守各自原有许可证，见 [第三方组件](docs/第三方组件.md)。
