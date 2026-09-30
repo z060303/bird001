@@ -40,7 +40,7 @@ cmake --preset Debug
 cmake --build --preset Debug
 ```
 
-输出为 `build/Debug/bird001.elf`。Release 可将 `Debug` 改成 `Release`。烧录需要 ST-LINK 和 STM32CubeProgrammer；请先阅读 [构建与验证](docs/构建与验证.md) 和 [硬件核对](docs/硬件核对.md)。
+输出为 `build/Debug/bird001.elf`。Release 可将 `Debug` 改成 `Release`。烧录需要 ST-LINK 和 STM32CubeProgrammer（其他EDA有cmake以及构建链即可）；请先阅读 [构建与验证](docs/构建与验证.md) 和 [硬件核对](docs/硬件核对.md)。
 
 ## 默认运行行为
 
