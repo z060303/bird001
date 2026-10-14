@@ -16,6 +16,11 @@ extern "C" {
 #define SBUS_RAW_MID         992U
 #define SBUS_RAW_MAX         1811U
 
+/* The board already inverts standard SBUS. Keep UART4 at 100k 8E2 on disconnect. */
+#ifndef SBUS_AUTO_CONFIG
+#define SBUS_AUTO_CONFIG 0U
+#endif
+
 typedef struct
 {
     uint16_t channel[SBUS_CHANNEL_COUNT];

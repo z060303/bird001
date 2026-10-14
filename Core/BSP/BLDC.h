@@ -145,7 +145,9 @@ typedef struct
 #define BLDC_TIM2_COUNTER_HZ              (1000000UL)
 
 /* Blank time between disabling the old state and enabling the new state. */
-#define BLDC_COMMUTATION_BLANK_US         (5UL)
+/* Give the first TIM2 ISR more time to exit before the blank-end IRQ.
+ * 30 us is below one 20 kHz PWM period and 1% of the 3 ms target sector. */
+#define BLDC_COMMUTATION_BLANK_US         (30UL)
 
 /* PA7=A, PA6=B, PA5=C. Used only in SENSORLESS_BEMF mode. All three dividers must have the same ratio.
  * REQUIRED before setting READY=1: upper 10k, lower 4.7k (1%), C <=100pF
@@ -193,6 +195,11 @@ uint16_t BLDC_GetDuty(void);
 uint8_t BLDC_GetDutyPercent(void);
 BLDC_RunningState BLDC_GetRunningState(void);
 BLDC_Fault BLDC_GetFault(void);
+#if (BLDC_CONTROL_MODE == BLDC_CONTROL_MODE_OPEN_LOOP_1637)
+/* Observed TIM2 update callback latency, in 1 MHz timer ticks. */
+uint32_t BLDC_GetMaxTimerLatencyUs(void);
+uint32_t BLDC_GetLateTimerCount(void);
+#endif
 uint32_t BLDC_GetMeasuredRpm(void);
 
 /* Called only by the synchronized ADC1/ADC2 injected-conversion ISR. */

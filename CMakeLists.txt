@@ -224,6 +224,8 @@ target_sources(${CMAKE_PROJECT_NAME} PRIVATE
     ${FREERTOS_DIR}/portable/GCC/ARM_CM4F/port.c
     Core/APP/app_freertos.c
     Core/APP/roll_control.c
+    Core/APP/sbus_servo_control.c
+    Core/APP/sbus_motor_control.c
     Core/APP/rtos_hooks.c
 )
 target_include_directories(${CMAKE_PROJECT_NAME} PRIVATE

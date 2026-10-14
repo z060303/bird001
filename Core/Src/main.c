@@ -37,12 +37,6 @@
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
 
-/* The supplied schematic ties VB1/VB2/VB3 to one node. Keep the bridge off
- * until the assembled board has independent bootstrap supplies and is tested. */
-#ifndef BLDC_AUTOSTART
-#define BLDC_AUTOSTART 0U
-#endif
-
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -64,6 +58,28 @@ void SystemClock_Config(void);
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
+static void HoldMotorOutputsOff(void)
+{
+  GPIO_InitTypeDef gpio = {0};
+  __HAL_RCC_GPIOA_CLK_ENABLE();
+  __HAL_RCC_GPIOB_CLK_ENABLE();
+  /* EG2133 both OFF: HIN=0, active-low LIN=1. Set levels before output mode. */
+  HAL_GPIO_WritePin(GPIOA, GPIO_PIN_8 | GPIO_PIN_9 | GPIO_PIN_10, GPIO_PIN_RESET);
+  HAL_GPIO_WritePin(GPIOB, GPIO_PIN_13 | GPIO_PIN_14 | GPIO_PIN_15, GPIO_PIN_SET);
+  gpio.Mode = GPIO_MODE_OUTPUT_PP;
+  gpio.Pull = GPIO_NOPULL;
+  gpio.Speed = GPIO_SPEED_FREQ_LOW;
+  gpio.Pin = GPIO_PIN_8 | GPIO_PIN_9 | GPIO_PIN_10;
+  HAL_GPIO_Init(GPIOA, &gpio);
+  gpio.Pin = GPIO_PIN_13 | GPIO_PIN_14 | GPIO_PIN_15;
+  HAL_GPIO_Init(GPIOB, &gpio);
+#if APP_SBUS_ONLY
+  HAL_GPIO_WritePin(GPIOB, GPIO_PIN_8, GPIO_PIN_RESET); /* No servo PWM in bench mode. */
+  gpio.Pin = GPIO_PIN_8;
+  HAL_GPIO_Init(GPIOB, &gpio);
+#endif
+}
+
 int __io_putchar(int ch)
 {
   const char byte = (char)ch;
@@ -88,7 +104,7 @@ int main(void)
   HAL_Init();
 
   /* USER CODE BEGIN Init */
-
+  HoldMotorOutputsOff();
   /* USER CODE END Init */
 
   /* Configure the system clock */
@@ -101,18 +117,21 @@ int main(void)
   /* Initialize all configured peripherals */
   MX_GPIO_Init();
   MX_USART6_UART_Init();
+#if !APP_SBUS_ONLY
   MX_I2C1_Init();
+#if APP_MOTOR_TASK_ENABLED
   MX_TIM1_Init();
   MX_TIM2_Init();
+#endif
   MX_USART2_UART_Init();
   MX_TIM4_Init();
   MX_I2C2_Init();
+#endif
   MX_UART4_Init();
   /* USER CODE BEGIN 2 */
+#if !APP_SBUS_ONLY && APP_MOTOR_TASK_ENABLED
   BLDC_Init();
-#if BLDC_AUTOSTART
-  BLDC_SetDirection(MOTOR_FORWARD);
-  BLDC_Start();
+  BLDC_SetDutyPercent(0U); /* Remain stopped until a valid low-then-high CH3 request. */
 #endif
   App_Start();
 /* USER CODE END 2 */
@@ -176,7 +195,11 @@ void SystemClock_Config(void)
 /* USER CODE BEGIN 4 */
 void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
 {
+#if !APP_SBUS_ONLY && APP_MOTOR_TASK_ENABLED
   BLDC_TIM_PeriodElapsedCallback(htim);
+#else
+  (void)htim;
+#endif
 }
 /* USER CODE END 4 */
 
@@ -189,6 +212,12 @@ void Error_Handler(void)
   /* USER CODE BEGIN Error_Handler_Debug */
   /* User can add his own implementation to report the HAL error return state */
   __disable_irq();
+#if !APP_SBUS_ONLY && APP_MOTOR_TASK_ENABLED
+  if (htim1.Instance == TIM1 && htim2.Instance == TIM2)
+  {
+    BLDC_EmergencyStop();
+  }
+#endif
   while (1)
   {
   }

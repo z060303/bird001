@@ -69,6 +69,8 @@ static uint32_t s_duty_elapsed_us;
 static volatile uint16_t s_target_duty;
 static uint8_t s_pullin_sectors;
 static uint32_t s_align_elapsed_us;
+static volatile uint32_t s_max_timer_latency_us;
+static volatile uint32_t s_late_timer_count;
 
 #define BLDC_CCER_OUTPUT_MASK (TIM_CCER_CC1E  | TIM_CCER_CC1NE | \
                                TIM_CCER_CC2E  | TIM_CCER_CC2NE | \
@@ -438,7 +440,9 @@ static void BLDC_ApplyStep(uint8_t step)
     BLDC_SetPhaseOutput(high_pwm, PHASE_MODE_HIGH_PWM);
 
     /* Only after the whole state is prepared, enable the main output. */
-    TIM1->EGR = TIM_EGR_UG;
+    /* Do not force UG at every commutation: UG resets the PWM counter and
+     * can turn one 20 kHz pulse into a short/long pulse. CCR preloads are
+     * refreshed by the regular PWM update event instead. */
     TIM1->CR1 |= TIM_CR1_CEN;
     __HAL_TIM_MOE_ENABLE(&htim1);
 
@@ -501,6 +505,8 @@ static void BLDC_RampOpenLoop(void)
 
 void BLDC_Init(void)
 {
+    s_max_timer_latency_us = 0U;
+    s_late_timer_count = 0U;
     motor.max_duty = BLDC_PercentToCcr(BLDC_MAX_RUN_DUTY_PERCENT);
     motor.dir = MOTOR_FORWARD;
     motor.step = 0U;
@@ -791,6 +797,12 @@ void BLDC_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
         return;
     }
 
+    /* TIM2 is 1 MHz and continues counting after an update event. A callback
+     * delayed by another ISR or a long critical section shows up here. */
+    uint32_t latency_us = TIM2->CNT;
+    if (latency_us > s_max_timer_latency_us) s_max_timer_latency_us = latency_us;
+    if (latency_us > BLDC_COMMUTATION_BLANK_US) s_late_timer_count++;
+
     if (motor.state == BLDC_STATE_BOOTSTRAP_PRECHARGE)
     {
         BLDC_AllOutputsOff();
@@ -882,6 +894,9 @@ BLDC_Fault BLDC_GetFault(void)
 {
     return BLDC_FAULT_NONE;
 }
+
+uint32_t BLDC_GetMaxTimerLatencyUs(void) { return s_max_timer_latency_us; }
+uint32_t BLDC_GetLateTimerCount(void) { return s_late_timer_count; }
 
 uint32_t BLDC_GetMeasuredRpm(void)
 {

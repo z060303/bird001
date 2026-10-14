@@ -106,3 +106,65 @@ python tests/run_app_arm_test.py
 
 设计依据：[FreeRTOS 周期任务 API](https://www.freertos.org/Documentation/02-Kernel/04-API-references/02-Task-control/03-xTaskDelayUntil)、
 [TE MS5611 数据手册](https://my.avnet.com/wcm/connect/83d782cc-0b60-4045-a710-a8a2daf90b20/TE-Connectivity-MS5611-Series-EN-Datasheet.pdf?CACHE=NONE&CVID=oMx6Zo2&ContentCache=NONE&MOD=AJPERES)。
+
+
+## 2026-10-14 修改记录
+
+以下记录本次 SBUS 接收、串口打印和 CH1/CH3 遥控控制改动；上述既有说明保留为历史内容，当前行为以本节为准。
+
+### 当前任务与启动配置
+
+- `APP_SBUS_ONLY=0`、`APP_MOTOR_TASK_ENABLED=1`：启动 `ch1_servo`（8 ms）、`imu_8ms`（8 ms）、`baro_20ms`（20 ms）、`sbus_5ms`（5 ms）、`bldc_20ms`（20 ms）和 `uart_log` 六个任务。
+- 电机初始化在调度器启动前完成，占空比设为 0，等待 CH3 指令，不再上电自动运行。
+- `APP_MOTOR_TASK_ENABLED=0` 可单独暂停电机任务；`APP_SBUS_ONLY=1` 可只运行 SBUS 接收和串口打印。
+- CH1/CH3 及原始帧时间戳共用长度 1 的覆盖队列，舵机、电机任务使用 `xQueuePeek()` 各自读取，不消耗对方的样本。IMU 姿态解算继续运行，舵机角度由 CH1 决定。
+
+### SBUS 接收与串口打印
+
+- 接收：PA1 / UART4_RX / AF8；信号已硬件反相，固定 100000 波特率、8 位数据、偶校验、2 停止位。STM32 HAL 的 `UART_WORDLENGTH_9B + UART_PARITY_EVEN` 对应线上 8E2。
+- 丢弃 PE/FE/NE/ORE 错误帧，等待帧间空闲重新同步；IDLE 间隔清除残帧，防止与下一帧拼接。启动时先等待帧间空闲。
+- 帧尾明确接受 0x00/0x04/0x08/0x14/0x24/0x34，支持常见 SBUS/SBUS2 帧尾；断流时保持标准 UART4 配置。
+- 打印：PC6 TX / PC7 RX 的 USART6，115200、8N1。每隔至少 50 ms 输出一次最新通道和状态；无信号或超过 100 ms 没有新帧时输出 `sbus:NO_SIGNAL rx=... err=...`，持续无信号每秒输出一次。
+- 示例：
+
+```text
+sbus:CH1=942 CH2=992 CH3=312 CH4=992 CH5=992 CH6=992 CH7=992 CH8=992 CH9=992 CH10=992 CH11=992 CH12=992 CH13=992 CH14=992 CH15=992 CH16=992 D17=0 D18=0 lost=0 fs=0 n=123
+```
+
+`CH1`～`CH16` 为原始 11 位通道值；`D17/D18` 为数字通道，`lost/fs` 为丢帧/失控标志，`n` 为解析帧数。原有 `baro:` 输出保留，IMU 不入串口日志队列。打印记录复制入队，由日志任务统一格式化和中断发送，发送等待上限从 20 ms 增至 40 ms。
+
+接线：PC6 接 USB 转串口模块 RX，PC7 接模块 TX（只查看输出时可不接），两端 GND 共地。串口助手用文本模式查看；VOFA+ FireWater 气压显示需只选择 `baro:` 行。
+
+### CH1 舵机控制
+
+| CH1 | 舵机角度 | PWM 脉宽 |
+| --- | --- | --- |
+| 544 | 0°，左端 | 500 μs |
+| 942 | 72.5°，居中 | 1500 μs |
+| 1340 | 145°，右端 | 2500 μs |
+
+参数位于 `sbus_servo_control.h`，当前中位取输入范围中点 942。输入先限制在 544～1340，角度跟随拨杆位置；超出范围不会超出舵机行程。机械方向相反时可将 `APP_SBUS_SERVO_DIRECTION` 改为 -1。保留 PB8 / TIM4_CH3、50 Hz 舵机 PWM。
+
+没有 SBUS 样本、接收机 failsafe/frame_lost 置位，或距最近有效帧超过 100 ms 时回中；有效帧恢复后重新跟随 CH1。反复发布旧样本不会刷新帧时间戳。
+
+### CH3 无刷电机调速
+
+参数位于 `sbus_motor_control.h`，CH3 范围为 312～1912。通过 `BLDC_SetCommutationPeriodUs()` 调速，使用原有开环六步正转，不使用只改变占空比的旧 `BLDC_SetSpeed()` 接口。
+
+| CH3 | 电机行为 | 目标换相周期 | 理论转速设定（现有 6 对极配置） |
+| --- | --- | --- | --- |
+| 312～332 | 停机，低端 20 点死区 | 无 | 0 |
+| 333 | 最低运行档 | 20000 μs | 约 83 rpm |
+| 1112 | 中间油门 | 约 5269 μs | 约 316 rpm |
+| 1912 及以上 | 原有最高运行档 | 3000 μs | 约 556 rpm |
+
+有效运行区按理论转速线性插值后反算换相周期；保留 16% 运行占空比、250 rpm/s 加速、350 rpm/s 减速和预充电/定位/起转流程。运行时改变 CH3 只更新目标，不反复重启定位。当前没有实际速度反馈，上述为开环设定值，实际转速尚未上板验证。
+
+上电先回最低油门，再推高启动。无有效样本、failsafe/frame_lost、驱动故障或帧龄超过 100 ms 时，20 ms 电机任务停止输出，并撤销启动许可；接收恢复后需再次回最低油门。新增调试字段 `motor_target_rpm`、`motor_target_period_us`、`motor_armed`、`motor_failsafe`。
+
+### 验证
+
+- Debug、Release 编译通过；固件启动检查确认创建全部六个任务，舵机启动脉宽为 1500 μs。
+- `tests/run_app_arm_test.py` 覆盖 CH1 全范围/端点/中点/限幅、失联/标志回中、时间戳回绕、1000 组真实 SBUS 解码、UART 错帧与帧间隔恢复、SBUS2 帧尾、打印节流/队列快照/缓冲边界，以及 CH3 映射/低油门启动许可/失联停机/恢复和不重复启动。
+- `tests/run_bldc_openloop_arm_test.py` 覆盖实际开环驱动的 CH3 加减速请求、换相与占空比归零停机。
+- 测试使用 ARM 模拟及 HAL/RTOS 边界替代，不模拟电机机械响应或真实任务切换；本次未烧录。

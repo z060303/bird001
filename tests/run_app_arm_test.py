@@ -25,7 +25,7 @@ command = [compiler, "-mcpu=cortex-m4", "-mthumb", "-mfloat-abi=soft", "-O1", "-
            "-nostartfiles", "--specs=nano.specs", "--specs=nosys.specs",
            "-DSTM32F405xx", "-DUSE_HAL_DRIVER", "-DAPP_USE_FREERTOS=1"]
 command += [f"-I{project / directory}" for directory in includes]
-command += [str(project / file) for file in ["tests/app_arm_test.c", "Core/BSP/Servo.c",
+command += [str(project / file) for file in ["tests/app_arm_test.c", "Core/BSP/Servo.c", "Core/APP/sbus_servo_control.c", "Core/APP/sbus_motor_control.c",
                                            "Core/BSP/bsp_delay.c", "Core/APP/roll_control.c"]]
 command += [f"-T{project / 'tests/bldc_test.ld'}", "-Wl,--gc-sections", "-lm", "-lc", "-lgcc", "-o", str(elf_path)]
 subprocess.run(command, check=True)
@@ -50,4 +50,8 @@ if result:
     raise SystemExit(f"Application regression failed at tests/app_arm_test.c:{result}")
 print("PASS: servo startup/direction/clamps, stale/invalid IMU failsafe, periodic release/wrap/overrun,")
 print("      yielding conversion delays, queue-full and UART timeout/error paths, output formatting,")
-print("      MS5611 datasheet compensation and OSR commands, signed IMU parsing/attitude and recovery.")
+print("      SBUS channel/status snapshots, print throttling/wrap, disconnect/recovery and buffer bounds,")
+print("      CH1 servo endpoints/midpoint/limits, stale/flags/wrap failsafe, UART error/gap recovery,")
+print("      CH3 speed mapping/limits, low-throttle arming, stop/rearm, no repeated motor startup,")
+print("      MS5611 compensation/OSR, startup pressure averaging, spike rejection and return-to-zero,")
+print("      signed IMU parsing/attitude and recovery.")

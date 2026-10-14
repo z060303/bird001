@@ -108,6 +108,7 @@ static uint8_t g_average_count = 0;
  * 当前滤波压力
  */
 static float g_filtered_pressure = 0.0f;
+static float g_sample_pressure_filter = 0.0f;
 
 
 /*
@@ -181,6 +182,8 @@ static float
 PressureSensor_MedianFilter(
     float value
 );
+
+static float PressureSensor_FilterSamplePressure(float pressure_pa);
 
 
 static float
@@ -806,6 +809,7 @@ PressureSensor_Init(void)
      * 清除滤波器
      */
     PressureSensor_ResetAltitudeFilter();
+    g_sample_pressure_filter = 0.0f;
 
 
     /*
@@ -1200,23 +1204,10 @@ static PressureSensor_Status_t PressureSensor_ReadWithOSR(
     data->Pressure_Pa =
         (float)pressure;
 
-    static float pressure_filter=0;
-
-    if(pressure_filter==0)
-    {
-        pressure_filter=data->Pressure_Pa;
-    }
-    else
-    {
-        pressure_filter =
-            pressure_filter*0.9f
-            +
-            data->Pressure_Pa*0.1f;
-    }
-
-
-    data->Pressure_Pa =
-    pressure_filter;
+    /* Reject isolated conversion spikes before the adaptive low-pass.
+     * Unlike the former fixed 0.1 IIR, large sustained changes settle
+     * quickly after moving back to the same height. */
+    data->Pressure_Pa = PressureSensor_FilterSamplePressure(data->Pressure_Pa);
 
     /*
      * ========================================================
@@ -1259,6 +1250,23 @@ static PressureSensor_Status_t PressureSensor_ReadWithOSR(
  * 5点中值滤波
  * ============================================================
  */
+
+static float PressureSensor_FilterSamplePressure(float pressure_pa)
+{
+    float median_pressure = PressureSensor_MedianFilter(pressure_pa);
+    if (g_sample_pressure_filter == 0.0f)
+    {
+        g_sample_pressure_filter = median_pressure;
+    }
+    else
+    {
+        float difference = median_pressure - g_sample_pressure_filter;
+        float alpha = fabsf(difference) > PRESSURE_CHANGE_THRESHOLD_PA ?
+                      PRESSURE_ALPHA_FAST : PRESSURE_ALPHA_SLOW;
+        g_sample_pressure_filter += alpha * difference;
+    }
+    return g_sample_pressure_filter;
+}
 
 static float PressureSensor_MedianFilter(float value)
 {
@@ -1449,6 +1457,19 @@ PressureSensor_PressureToRelativeAltitude(
  * ============================================================
  */
 
+PressureSensor_Status_t PressureSensor_SetReferencePressure(float pressure_pa)
+{
+    if (!isfinite(pressure_pa) || pressure_pa <= 0.0f)
+    {
+        return PRESSURE_SENSOR_INVALID_PARAMETER;
+    }
+
+    g_reference_pressure = pressure_pa;
+    g_reference_valid = 1U;
+    PressureSensor_ResetAltitudeFilter();
+    return PRESSURE_SENSOR_OK;
+}
+
 PressureSensor_Status_t
 PressureSensor_SetAltitudeReference(void)
 {
@@ -1614,8 +1635,6 @@ PressureSensor_CalculateRelativeAltitude(
     float pressure_pa
 )
 {
-    float median_pressure;
-
     float filtered_pressure;
 
     float raw_altitude;
@@ -1633,23 +1652,8 @@ PressureSensor_CalculateRelativeAltitude(
 
     /*
      * ========================================================
-     * 第1级：
-     *
-     * 5点中值滤波
-     *
-     * 主要去除突然的尖峰。
-     * ========================================================
-     */
-
-    median_pressure =
-        PressureSensor_MedianFilter(
-            pressure_pa
-        );
-
-
-    /*
-     * ========================================================
-     * 第2级：
+     * PressureSensor_ReadWithOSR already applies the 3-point median.
+     * Keep only a short average here to avoid a second median delay.
      *
      * 滑动平均
      * ========================================================
@@ -1657,7 +1661,7 @@ PressureSensor_CalculateRelativeAltitude(
 
     filtered_pressure =
         PressureSensor_AverageFilter(
-            median_pressure
+            pressure_pa
         );
 
 
@@ -1690,11 +1694,11 @@ PressureSensor_CalculateRelativeAltitude(
      *
      * 高度变化明显：
      *
-     *      alpha = 0.25
+     *      alpha = 0.65
      *
      * 静止：
      *
-     *      alpha = 0.08
+     *      alpha = 0.18
      *
      * ========================================================
      */

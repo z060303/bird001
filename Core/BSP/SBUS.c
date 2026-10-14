@@ -5,6 +5,7 @@ static uint8_t s_isr_buf[SBUS_FRAME_LEN];
 static uint8_t s_frame[SBUS_FRAME_LEN];
 static uint8_t s_rx_idx;
 static uint8_t s_rx_state;
+static uint8_t s_wait_for_gap;
 static UART_HandleTypeDef *s_huart;
 
 typedef struct
@@ -122,6 +123,7 @@ static void SBUS_ParseFrame(const uint8_t *buf)
 
 static void SBUS_ConsumeByte(uint8_t b)
 {
+    if (s_wait_for_gap != 0U) return;
     if (s_rx_state == 0U)
     {
         if (b == SBUS_HEADER)
@@ -138,7 +140,9 @@ static void SBUS_ConsumeByte(uint8_t b)
         {
             s_rx_state = 0U;
             if ((s_isr_buf[0] == SBUS_HEADER) &&
-                ((s_isr_buf[24] & 0xF0U) == 0U))
+                ((s_isr_buf[24] == 0x00U) || (s_isr_buf[24] == 0x04U) ||
+                 (s_isr_buf[24] == 0x08U) || (s_isr_buf[24] == 0x14U) ||
+                 (s_isr_buf[24] == 0x24U) || (s_isr_buf[24] == 0x34U)))
             {
                 uint32_t basepri = __get_BASEPRI();
                 __set_BASEPRI(1U << (8U - __NVIC_PRIO_BITS));
@@ -150,6 +154,7 @@ static void SBUS_ConsumeByte(uint8_t b)
             {
                 s_data.frame_err_count++;
                 s_data.err_count++;
+                s_wait_for_gap = 1U;
             }
         }
     }
@@ -400,6 +405,7 @@ static void SBUS_ApplyConfig(uint8_t index)
 
     SBUS_ResetFrameState();
     memset((void *)&s_data, 0, sizeof(s_data));
+    s_wait_for_gap = 0U;
     s_data.config_index = index;
     s_data.config_locked = 0U;
     s_config_trial_start = HAL_GetTick();
@@ -461,7 +467,10 @@ static void SBUS_ApplyConfig(uint8_t index)
         }
 
         __HAL_UART_CLEAR_PEFLAG(s_huart);
+        /* Startup may occur in the middle of a packet. Await a real frame gap. */
+        s_wait_for_gap = 1U;
         __HAL_UART_ENABLE_IT(s_huart, UART_IT_RXNE);
+        __HAL_UART_ENABLE_IT(s_huart, UART_IT_IDLE);
         __HAL_UART_ENABLE_IT(s_huart, UART_IT_PE);
         __HAL_UART_ENABLE_IT(s_huart, UART_IT_ERR);
         HAL_NVIC_SetPriority(UART4_IRQn, 5U, 0U);
@@ -494,6 +503,12 @@ void SBUS_Process(void)
     now = HAL_GetTick();
     if (s_data.frame_count != frame_count_before)
         s_last_frame_tick = now;
+
+    if (SBUS_AUTO_CONFIG == 0U)
+    {
+        if (s_data.frame_count != 0U) s_data.config_locked = 1U;
+        return;
+    }
 
     if ((s_soft_adaptive != 0U) &&
         (s_soft_refined == 0U) &&
@@ -595,10 +610,17 @@ void UART4_IRQHandler(void)
     uint8_t b;
 
     /* Reading SR followed by DR clears PE/FE/NE/ORE on STM32F4. */
-    if ((has_data != 0U) || (error_flags != 0U))
+    if ((has_data != 0U) || (error_flags != 0U) || ((status & USART_SR_IDLE) != 0U))
         raw = (uint16_t)(UART4->DR & 0x01FFU);
 
     b = (uint8_t)(raw & 0x00FFU);
+
+    if ((status & USART_SR_IDLE) != 0U)
+    {
+        /* A frame gap discards any partial packet before the next header. */
+        SBUS_ResetFrameState();
+        s_wait_for_gap = 0U;
+    }
 
     if (error_flags != 0U)
     {
@@ -609,6 +631,8 @@ void UART4_IRQHandler(void)
         if ((status & USART_SR_NE) != 0U)  s_data.ne_count++;
         if ((status & USART_SR_FE) != 0U)  s_data.fe_count++;
         if ((status & USART_SR_ORE) != 0U) s_data.ore_count++;
+        SBUS_ResetFrameState();
+        s_wait_for_gap = 1U;
     }
 
     if (has_data != 0U)
@@ -616,13 +640,8 @@ void UART4_IRQHandler(void)
         s_data.rx_byte_count++;
         s_data.last_rx_byte = b;
 
-        /*
-         * NE/FE/PE describe the framing/parity around the byte; the received
-         * data bits are still valid. Keep them so a marginal inverter or a
-         * non-standard stop-bit format does not prevent frame synchronization.
-         * ORE means a byte may have been lost, so that case must resync.
-         */
-        if ((error_flags & USART_SR_ORE) == 0U)
+        /* No checksum exists in SBUS: bytes with any UART error invalidate the frame. */
+        if (error_flags == 0U)
         {
             SBUS_ConsumeByte(b);
         }

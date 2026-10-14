@@ -102,6 +102,12 @@ extern "C" {
  */
 #define PRESSURE_MEDIAN_SIZE        3U
 
+/* Raw-pressure IIR: quiet samples suppress noise; a real height change
+ * crosses the innovation threshold and is followed more quickly. */
+#define PRESSURE_ALPHA_SLOW         0.12f
+#define PRESSURE_ALPHA_FAST         0.50f
+#define PRESSURE_CHANGE_THRESHOLD_PA 4.0f
+
 
 /*
  * 压力平均滤波窗口。
@@ -110,7 +116,7 @@ extern "C" {
  *      越稳定
  *      响应越慢
  *
- * 这里使用5。
+ * 这里使用2，避免增加返回原高度后的滞后。
  */
 #define PRESSURE_AVERAGE_SIZE       2U
 
@@ -133,7 +139,7 @@ extern "C" {
  *
  * 越大响应越快。
  */
-#define ALTITUDE_ALPHA_FAST         0.5f
+#define ALTITUDE_ALPHA_FAST         0.65f
 
 
 /*
@@ -141,15 +147,15 @@ extern "C" {
  *
  * 越小越稳定。
  */
-#define ALTITUDE_ALPHA_SLOW         0.05f
+#define ALTITUDE_ALPHA_SLOW         0.18f
 
 
 /*
  * 判断是否发生明显高度变化。
  *
- * 3cm。
+ * 12cm。
  */
-#define ALTITUDE_CHANGE_THRESHOLD   0.03f
+#define ALTITUDE_CHANGE_THRESHOLD   0.12f
 
 
 /*
@@ -316,6 +322,10 @@ PressureSensor_Status_t PressureSensor_Read(
  */
 PressureSensor_Status_t
 PressureSensor_SetAltitudeReference(void);
+
+/* Use an already measured startup pressure (Pa) as the zero-height reference.
+ * Unlike SetAltitudeReference(), this does not perform extra I2C conversions. */
+PressureSensor_Status_t PressureSensor_SetReferencePressure(float pressure_pa);
 
 
 /* ============================================================
