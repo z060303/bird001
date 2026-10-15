@@ -48,7 +48,7 @@ cmake --build --preset Debug
 - 横滚控制任务约每 8 ms 取最新样本，映射到舵机的 0～145°；样本无效或超过 40 ms 时回到 72.5° 中位。
 - MS5611 经 I2C1 约每 20 ms 读取气压与温度。
 - USART6 以 115200、8N1 输出 `I`（姿态）和 `P`（气压）记录。
-- 无刷电机执行初始化，但 `BLDC_AUTOSTART=0`；SBUS 驱动已包含在源码中，当前应用入口没有启用接收和遥控控制链路。
+- 无刷电机执行初始化，但 `BLDC_AUTOSTART=0`；SBUS 驱动已包含在源码中，当前应用入口启用接收和遥控控制链路。
 
 这些周期是**正常运行时的任务计划周期**，不是硬件故障时的完成时间保证。
 
@@ -81,6 +81,7 @@ https://github.com/user-attachments/assets/0544123f-fe12-4aef-b283-a6243deb4f4b
 舵机自适应平衡驱动视频
 
 https://github.com/user-attachments/assets/28b2c677-17da-4bfe-9c41-6cadca201b14
+
 
 本仓库保留的是设计源文件与固件，由于实验室项目规定未提供装配实测报告或飞行测试结果。
 
